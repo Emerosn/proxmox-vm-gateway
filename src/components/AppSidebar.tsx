@@ -1,6 +1,7 @@
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, Download, Upload, ScrollText, Settings, Server } from "lucide-react";
+import { LayoutDashboard, Download, Upload, ScrollText, Settings, Server, Sun, Moon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -12,6 +13,7 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const { theme, setTheme } = useTheme();
 
   return (
     <aside className="hidden md:flex w-64 flex-col bg-sidebar border-r border-sidebar-border min-h-screen">
@@ -42,8 +44,15 @@ export function AppSidebar() {
           );
         })}
       </nav>
-      <div className="px-6 py-4 border-t border-sidebar-border">
-        <p className="text-xs text-sidebar-foreground/60">Proxmox VM Manager v1.0</p>
+      <div className="px-4 py-4 border-t border-sidebar-border flex items-center justify-between">
+        <p className="text-xs text-sidebar-foreground/60">v1.0</p>
+        <button
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          className="p-2 rounded-md text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          aria-label="Alternar tema"
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
       </div>
     </aside>
   );
