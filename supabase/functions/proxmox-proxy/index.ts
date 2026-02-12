@@ -15,21 +15,52 @@ function json(data: unknown, status = 200) {
 
 async function proxmoxFetch(baseUrl: string, path: string, tokenId: string, tokenSecret: string, method = "GET", body?: unknown) {
   const url = `${baseUrl}/api2/json${path}`;
+  console.log(`[proxmox-proxy] ${method} ${url}`);
+  
   const headers: Record<string, string> = {
     Authorization: `PVEAPIToken=${tokenId}=${tokenSecret}`,
   };
-  const opts: RequestInit = { method, headers };
+  const opts: RequestInit & { client?: unknown } = { method, headers };
+  
   if (body) {
     headers["Content-Type"] = "application/x-www-form-urlencoded";
     opts.body = new URLSearchParams(body as Record<string, string>).toString();
   }
-  const res = await fetch(url, opts);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Proxmox API ${res.status}: ${text}`);
+
+  // Create an abort controller for timeout (15 seconds)
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  opts.signal = controller.signal;
+
+  try {
+    // Use Deno's HttpClient to skip SSL verification for self-signed Proxmox certs
+    const httpClient = Deno.createHttpClient({ 
+      caCerts: [],
+    });
+    const res = await fetch(url, {
+      ...opts,
+      // @ts-ignore - Deno specific
+      client: httpClient,
+    });
+    
+    clearTimeout(timeout);
+    
+    if (!res.ok) {
+      const text = await res.text();
+      console.error(`[proxmox-proxy] API error ${res.status}: ${text}`);
+      throw new Error(`Proxmox API ${res.status}: ${text}`);
+    }
+    
+    const j = await res.json();
+    return j.data;
+  } catch (e: any) {
+    clearTimeout(timeout);
+    if (e.name === "AbortError") {
+      throw new Error("Timeout: servidor Proxmox não respondeu em 15s. Verifique a URL e se o servidor está acessível.");
+    }
+    console.error(`[proxmox-proxy] Fetch error: ${e.message}`);
+    throw e;
   }
-  const j = await res.json();
-  return j.data;
 }
 
 serve(async (req) => {
@@ -44,6 +75,8 @@ serve(async (req) => {
     if (!serverUrl || !tokenId || !tokenSecret) {
       return json({ error: "Configuração do Proxmox ausente" }, 400);
     }
+
+    console.log(`[proxmox-proxy] Action: ${action}, Server: ${serverUrl}`);
 
     const pf = (path: string, method = "GET", body?: unknown) =>
       proxmoxFetch(serverUrl, path, tokenId, tokenSecret, method, body);
@@ -96,7 +129,6 @@ serve(async (req) => {
 
       case "import_vm": {
         const { node, storage, filename, vmName, cores, memory } = params;
-        // Use qmrestore for importing backup files
         const data = await pf(`/nodes/${node}/qemu`, "POST", {
           vmid: String(Math.floor(Math.random() * 9000) + 1000),
           name: vmName,
@@ -123,6 +155,7 @@ serve(async (req) => {
         return json({ error: `Ação desconhecida: ${action}` }, 400);
     }
   } catch (e: any) {
+    console.error(`[proxmox-proxy] Error: ${e.message}`);
     return json({ error: e.message || "Erro interno" }, 500);
   }
 });
